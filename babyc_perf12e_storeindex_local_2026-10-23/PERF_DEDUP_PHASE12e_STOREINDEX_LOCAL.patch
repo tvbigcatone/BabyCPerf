@@ -1,0 +1,63 @@
+--- /tmp/ir_lin_exec_perf12d.c	2026-10-23 18:34:29.365014379 +0000
++++ src/ir_lin_exec.c	2026-10-23 18:37:15.853021105 +0000
+@@ -4832,6 +4832,60 @@
+                 }
+                 /* fall through */
+             case IrLinStoreIndex:
++                /* Local array store (IdxMetaKind=0), owned slot only.
++                 * Pointer-into-caller aliasing stays on Step. */
++                if (In->Tok != 2 && In->Tok != 4 && In->Tok != 8 && In->Tok != 3)
++                {
++                    int im = (int)In->Imm;
++                    if (im >= 0 && im < IdxN
++                        && FNCODE_PROFILE_READ(FNCODE_P_IDX, IdxMetaKind[im]) == 0
++                        && FNCODE_PROFILE_READ(FNCODE_P_IDX, IdxMetaSlot[im]) >= 0
++                        && IrCallDepth > 0
++                        && FNCODE_PROFILE_READ(FNCODE_P_IDX, IdxMetaSlot[im]) < IR_CALL_MAX_LOCALS)
++                    {
++                        IrCallFrame *Fr = IrCallStack[IrCallDepth - 1];
++                        int slot = FNCODE_PROFILE_READ(FNCODE_P_IDX, IdxMetaSlot[im]);
++                        int es = Fr->LocalElemSize[slot] > 0
++                            ? (int)Fr->LocalElemSize[slot]
++                            : (FNCODE_PROFILE_READ(FNCODE_P_IDX, IdxMetaEs[im]) > 0
++                               ? (int)FNCODE_PROFILE_READ(FNCODE_P_IDX, IdxMetaEs[im]) : 4);
++                        int n = Fr->LocalArraySize[slot];
++                        if (n <= 0 && Fr->LocalOwned[slot])
++                            n = FNCODE_PROFILE_READ(FNCODE_P_IDX, IdxMetaN[im]);
++                        if (Fr->LocalOwned[slot]
++                            && Fr->LocalVal[slot] != 0 && es > 0)
++                        {
++                            char *Pbase = (char *)(intptr_t)Fr->LocalVal[slot];
++                            long long nv = R[In->A];
++                            long long idx = R[In->B];
++                            IrExpr *IX = FNCODE_PROFILE_READ(FNCODE_P_IDX, IdxTab[im]);
++                            if (n > 0 && (idx < 0 || idx >= (long long)n) && IrSafeChecksOn())
++                            {
++                                if (LinParser)
++                                    LinParser->Line = (IX && IX->SourceLine > 0)
++                                        ? IX->SourceLine : LinParser->Line;
++                                if (IX != NULL && IX->Left != NULL && IX->Left->Ident != NULL)
++                                    ParserSetCaretOnIdent(LinParser, IX->Left->Ident);
++                                ProgramFail(LinParser,
++                                    DiagnosticMsgArrayIndexOutOfBoundsSized,
++                                    (int)idx, n);
++                            }
++                            if (es == 1 || es == 2 || es == 4 || es == 8)
++                                IrWriteByElemSize(Pbase + (ptrdiff_t)idx * es, es, nv);
++                            else
++                                IrStorePtrElem(LinParser,
++                                    IrBaseFromElemSize(es, 0),
++                                    Pbase + (ptrdiff_t)idx * es, nv);
++                            if (Fr->LocalInitMap[slot] != NULL && idx >= 0
++                                && (n <= 0 || idx < (long long)n)
++                                && Fr->LocalArraySize[slot] > 0
++                                && (int)idx < Fr->LocalArraySize[slot])
++                                Fr->LocalInitMap[slot][(int)idx] = 1;
++                            ip++;
++                            break;
++                        }
++                    }
++                }
+                 if (!LinTryParamIndexedAccess(In, R, &ip))
+                     Step(In, R, Locals, NLocals, &ip);
+                 break;

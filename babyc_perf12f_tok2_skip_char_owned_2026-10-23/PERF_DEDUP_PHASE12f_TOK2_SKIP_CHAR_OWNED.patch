@@ -1,0 +1,14 @@
+--- /tmp/ir_lin_exec_perf12e.c	2026-10-23 18:40:08.309028071 +0000
++++ src/ir_lin_exec.c	2026-10-23 18:41:48.569032121 +0000
+@@ -4758,7 +4758,10 @@
+                     else eb = uns ? TypeUnsignedInt : TypeInt;
+                     if (Ptr != NULL)
+                     {
+-                        IrLinCheckOwnedPointerAccess(Ptr, es, NULL, 0);
++                        /* Tok=6 skips es==1: host strcpy often wrote char[]
++                         * without marking the init map. Same contract here. */
++                        if (es >= 2)
++                            IrLinCheckOwnedPointerAccess(Ptr, es, NULL, 0);
+                         R[In->Dest] = IrLoadPtrElem(eb, Ptr);
+                     }
+                     else

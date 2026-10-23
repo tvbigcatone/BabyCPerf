@@ -1,0 +1,24 @@
+--- /tmp/ir_lin_exec_perf12f.c	2026-10-23 18:44:01.105037475 +0000
++++ src/ir_lin_exec.c	2026-10-23 18:44:17.777038148 +0000
+@@ -4749,20 +4749,15 @@
+                     void *Ptr = (void *)(intptr_t)R[In->A];
+                     int es = (int)In->Imm;
+                     int uns = LinTok2Unsigned(In);
+-                    int eb;
+                     if (Ptr == NULL && IrSafeChecksOn() && LinParser != NULL)
+                         ProgramFail(LinParser, DiagnosticMsgNullPointerDereference);
+-                    if (es == 1) eb = uns ? TypeUnsignedChar : TypeChar;
+-                    else if (es == 2) eb = uns ? TypeUnsignedShort : TypeShort;
+-                    else if (es == 8) eb = TypePointer;
+-                    else eb = uns ? TypeUnsignedInt : TypeInt;
+                     if (Ptr != NULL)
+                     {
+                         /* Tok=6 skips es==1: host strcpy often wrote char[]
+                          * without marking the init map. Same contract here. */
+                         if (es >= 2)
+                             IrLinCheckOwnedPointerAccess(Ptr, es, NULL, 0);
+-                        R[In->Dest] = IrLoadPtrElem(eb, Ptr);
++                        R[In->Dest] = IrLoadByElemSize(Ptr, es, uns);
+                     }
+                     else
+                         R[In->Dest] = 0;

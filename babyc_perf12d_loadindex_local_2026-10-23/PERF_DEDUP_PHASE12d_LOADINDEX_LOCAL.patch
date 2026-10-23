@@ -1,0 +1,71 @@
+--- /tmp/ir_lin_exec_perf12c.c	2026-10-23 18:26:42.020995501 +0000
++++ src/ir_lin_exec.c	2026-10-23 18:32:15.077008955 +0000
+@@ -4768,6 +4768,68 @@
+                     ip++;
+                     break;
+                 }
++                /* Local array load (IdxMetaKind=0). Uninit misses stay on Step
++                 * so caret/diagnostics keep the full path. */
++                if (In->Tok != 2 && In->Tok != 7 && In->Tok != IR_LIN_IDX_ROW_DECAY
++                    && In->Tok != 6)
++                {
++                    int im = (int)In->Imm;
++                    if (im >= 0 && im < IdxN
++                        && FNCODE_PROFILE_READ(FNCODE_P_IDX, IdxMetaKind[im]) == 0
++                        && FNCODE_PROFILE_READ(FNCODE_P_IDX, IdxMetaSlot[im]) >= 0
++                        && IrCallDepth > 0
++                        && FNCODE_PROFILE_READ(FNCODE_P_IDX, IdxMetaSlot[im]) < IR_CALL_MAX_LOCALS)
++                    {
++                        IrCallFrame *Fr = IrCallStack[IrCallDepth - 1];
++                        int slot = FNCODE_PROFILE_READ(FNCODE_P_IDX, IdxMetaSlot[im]);
++                        long long idx = R[In->A];
++                        int n = Fr->LocalArraySize[slot];
++                        int es = Fr->LocalElemSize[slot] > 0
++                            ? (int)Fr->LocalElemSize[slot]
++                            : (FNCODE_PROFILE_READ(FNCODE_P_IDX, IdxMetaEs[im]) > 0
++                               ? (int)FNCODE_PROFILE_READ(FNCODE_P_IDX, IdxMetaEs[im]) : 4);
++                        if (n <= 0 && Fr->LocalOwned[slot])
++                            n = FNCODE_PROFILE_READ(FNCODE_P_IDX, IdxMetaN[im]);
++                        if ((Fr->LocalOwned[slot] || Fr->LocalIsPtr[slot])
++                            && Fr->LocalVal[slot] != 0 && es > 0)
++                        {
++                            char *base = (char *)(intptr_t)Fr->LocalVal[slot];
++                            IrExpr *IX = FNCODE_PROFILE_READ(FNCODE_P_IDX, IdxTab[im]);
++                            if (!IrArrayIndexInBounds(idx, n) && IrSafeChecksOn())
++                            {
++                                if (IX && IX->SourceLine > 0 && LinParser)
++                                    LinParser->Line = IX->SourceLine;
++                                if (IX != NULL && IX->Left != NULL && IX->Left->Ident != NULL)
++                                    ParserSetCaretOnIdent(LinParser, IX->Left->Ident);
++                                ProgramFail(LinParser,
++                                    DiagnosticMsgArrayIndexOutOfBoundsSized,
++                                    (int)idx, n);
++                            }
++                            if (IrUninitChecksOn() && n > 0 && idx >= 0 && idx < (long long)n
++                                && (Fr->LocalInitMap[slot] == NULL
++                                    || Fr->LocalInitMap[slot][(int)idx] == 0))
++                            {
++                                Step(In, R, Locals, NLocals, &ip);
++                                break;
++                            }
++                            {
++                                struct ValueType *ET = IrLinLocalIndexedType(Fr, slot);
++                                int is_unsigned = ET != NULL && IrTypeIsUnsignedBase(ET->Base);
++                                if (es == 1 || es == 2 || es == 4 || es == 8)
++                                    R[In->Dest] = IrLoadByElemSize(
++                                        base + (ptrdiff_t)idx * es, es, is_unsigned);
++                                else
++                                    R[In->Dest] = IrLoadPtrElem(
++                                        IrBaseFromElemSize(es, is_unsigned),
++                                        base + (ptrdiff_t)idx * es);
++                                if (In->Dest < IR_LIN_REGS)
++                                    LinRegU[In->Dest] = (unsigned char)is_unsigned;
++                            }
++                            ip++;
++                            break;
++                        }
++                    }
++                }
+                 /* fall through */
+             case IrLinStoreIndex:
+                 if (!LinTryParamIndexedAccess(In, R, &ip))
